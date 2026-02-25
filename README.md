@@ -31,8 +31,7 @@ go run .
 Open [http://localhost:8080](http://localhost:8080). Ctrl+C to stop.
 
 ## Dashboard
-
-![dashboard](https://github.com/user-attachments/assets/placeholder)
+<img width="2832" height="1700" alt="image" src="https://github.com/user-attachments/assets/5aed9ece-3e08-4532-a172-a2a4c0f26f66" />
 
 | Panel | Description |
 |-------|-------------|
