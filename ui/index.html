@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NATS Queue Group Playground</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --border: #2a2d3a;
+    --text: #e1e4ed;
+    --text-dim: #6b7084;
+    --accent: #6c5ce7;
+    --green: #00b894;
+    --red: #e17055;
+    --yellow: #fdcb6e;
+    --blue: #0984e3;
+    --worker-1: #6c5ce7;
+    --worker-2: #00b894;
+    --worker-3: #0984e3;
+    --worker-4: #e17055;
+    --worker-5: #fdcb6e;
+  }
+
+  body {
+    font-family: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    background: var(--bg);
+    color: var(--text);
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+  }
+
+  header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+
+  header h1 span { color: var(--accent); }
+
+  .status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--red);
+    transition: background 0.3s;
+  }
+
+  .status-dot.connected { background: var(--green); }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 1px;
+    flex: 1;
+    background: var(--border);
+    min-height: 0;
+  }
+
+  .panel {
+    background: var(--surface);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+  }
+
+  .panel-header {
+    padding: 12px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--text-dim);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    min-height: 0;
+  }
+
+  .panel-body::-webkit-scrollbar { width: 4px; }
+  .panel-body::-webkit-scrollbar-track { background: transparent; }
+  .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Live Feed */
+  .feed-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+    font-size: 12px;
+    animation: fadeIn 0.3s ease;
+    border-bottom: 1px solid rgba(42, 45, 58, 0.4);
+  }
+
+  .feed-item:last-child { border-bottom: none; }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .feed-badge {
+    font-size: 10px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+
+  .feed-task { color: var(--text-dim); flex-shrink: 0; }
+  .feed-arrow { color: var(--text-dim); }
+  .feed-worker { font-weight: 600; }
+  .feed-duration { color: var(--text-dim); margin-left: auto; font-size: 11px; }
+
+  /* Distribution Bars */
+  .bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .bar-label {
+    font-size: 11px;
+    width: 64px;
+    flex-shrink: 0;
+    font-weight: 600;
+  }
+
+  .bar-track {
+    flex: 1;
+    height: 24px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 4px;
+    overflow: hidden;
+    position: relative;
+  }
+
+  .bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.4s ease;
+    min-width: 0;
+  }
+
+  .bar-count {
+    font-size: 11px;
+    width: 36px;
+    text-align: right;
+    flex-shrink: 0;
+    color: var(--text-dim);
+  }
+
+  /* Stats */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  .stat-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px;
+  }
+
+  .stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  .stat-value {
+    font-size: 26px;
+    font-weight: 700;
+  }
+
+  .stat-value.green { color: var(--green); }
+  .stat-value.blue { color: var(--blue); }
+  .stat-value.yellow { color: var(--yellow); }
+  .stat-value.accent { color: var(--accent); }
+
+  /* Timeline */
+  .timeline-container {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 3px;
+    align-content: flex-start;
+  }
+
+  .timeline-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+    animation: popIn 0.2s ease;
+  }
+
+  @keyframes popIn {
+    from { transform: scale(0); }
+    to { transform: scale(1); }
+  }
+
+  .legend {
+    display: flex;
+    gap: 12px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 10px;
+    color: var(--text-dim);
+  }
+
+  .legend-swatch {
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+  }
+</style>
+</head>
+<body>
+  <header>
+    <h1><span>NATS</span> Queue Group Playground</h1>
+    <div class="status">
+      <div class="status-dot" id="statusDot"></div>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- Live Feed -->
+    <div class="panel">
+      <div class="panel-header">Live Feed</div>
+      <div class="panel-body" id="feed"></div>
+    </div>
+
+    <!-- Distribution -->
+    <div class="panel">
+      <div class="panel-header">Distribution</div>
+      <div class="panel-body" id="bars"></div>
+    </div>
+
+    <!-- Stats -->
+    <div class="panel">
+      <div class="panel-header">Stats</div>
+      <div class="panel-body">
+        <div class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">Published</div>
+            <div class="stat-value accent" id="statPublished">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Completed</div>
+            <div class="stat-value green" id="statCompleted">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Pending</div>
+            <div class="stat-value yellow" id="statPending">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Avg Latency</div>
+            <div class="stat-value blue" id="statLatency">0<span style="font-size:13px;color:var(--text-dim)">ms</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Timeline -->
+    <div class="panel">
+      <div class="panel-header">Timeline</div>
+      <div class="panel-body" id="timeline"></div>
+      <div class="legend">
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--worker-1)"></div>W1</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--worker-2)"></div>W2</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--worker-3)"></div>W3</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--worker-4)"></div>W4</div>
+        <div class="legend-item"><div class="legend-swatch" style="background:var(--worker-5)"></div>W5</div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const WORKER_COLORS = {
+  1: 'var(--worker-1)',
+  2: 'var(--worker-2)',
+  3: 'var(--worker-3)',
+  4: 'var(--worker-4)',
+  5: 'var(--worker-5)',
+};
+
+const MAX_FEED = 80;
+const MAX_TIMELINE = 200;
+
+let state = {
+  published: 0,
+  completed: 0,
+  workers: {},
+  durations: [],
+  feed: [],
+  timeline: [],
+};
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  ws.onopen = () => {
+    document.getElementById('statusDot').classList.add('connected');
+    document.getElementById('statusText').textContent = 'Connected';
+  };
+
+  ws.onclose = () => {
+    document.getElementById('statusDot').classList.remove('connected');
+    document.getElementById('statusText').textContent = 'Reconnecting...';
+    setTimeout(connect, 2000);
+  };
+
+  ws.onmessage = (e) => {
+    const evt = JSON.parse(e.data);
+    switch (evt.type) {
+      case 'initial_state':
+        handleInitialState(evt.data);
+        break;
+      case 'task_published':
+        handlePublished(evt.data);
+        break;
+      case 'task_completed':
+        handleCompleted(evt.data);
+        break;
+    }
+  };
+}
+
+function handleInitialState(data) {
+  state.published = data.total_published || 0;
+  state.completed = 0;
+  state.workers = {};
+  state.durations = [];
+
+  if (data.consumers) {
+    for (const [id, stats] of Object.entries(data.consumers)) {
+      state.workers[id] = stats.total_handled;
+      state.completed += stats.total_handled;
+      if (stats.avg_duration_ms > 0) {
+        state.durations.push(stats.avg_duration_ms);
+      }
+    }
+  }
+
+  if (data.recent_results) {
+    data.recent_results.forEach(r => {
+      state.feed.push(r);
+      state.timeline.push(r);
+    });
+  }
+
+  renderAll();
+}
+
+function handlePublished(task) {
+  state.published++;
+  renderStats();
+}
+
+function handleCompleted(result) {
+  state.completed++;
+  const wid = result.consumer_id;
+  state.workers[wid] = (state.workers[wid] || 0) + 1;
+  state.durations.push(result.duration_ms / 1e6); // nanoseconds to ms
+
+  state.feed.unshift(result);
+  if (state.feed.length > MAX_FEED) state.feed.length = MAX_FEED;
+
+  state.timeline.push(result);
+  if (state.timeline.length > MAX_TIMELINE) state.timeline = state.timeline.slice(-MAX_TIMELINE);
+
+  renderFeedItem(result);
+  renderBars();
+  renderStats();
+  renderTimelineDot(result);
+}
+
+function renderAll() {
+  renderFeed();
+  renderBars();
+  renderStats();
+  renderTimeline();
+}
+
+function renderFeedItem(result) {
+  const feed = document.getElementById('feed');
+  const el = document.createElement('div');
+  el.className = 'feed-item';
+  const color = WORKER_COLORS[result.consumer_id] || 'var(--text)';
+  const durationMs = (result.duration_ms / 1e6).toFixed(0);
+  el.innerHTML = `
+    <span class="feed-badge" style="background:${color}22;color:${color}">W${result.consumer_id}</span>
+    <span class="feed-task">task-${result.task_id}</span>
+    <span class="feed-arrow">&rarr;</span>
+    <span class="feed-worker" style="color:${color}">worker-${result.consumer_id}</span>
+    <span class="feed-duration">${durationMs}ms</span>
+  `;
+  feed.prepend(el);
+  while (feed.children.length > MAX_FEED) feed.removeChild(feed.lastChild);
+}
+
+function renderFeed() {
+  const feed = document.getElementById('feed');
+  feed.innerHTML = '';
+  state.feed.forEach(r => renderFeedItem(r));
+}
+
+function renderBars() {
+  const container = document.getElementById('bars');
+  const maxCount = Math.max(1, ...Object.values(state.workers));
+
+  let html = '';
+  for (let i = 1; i <= 5; i++) {
+    const count = state.workers[i] || 0;
+    const pct = (count / maxCount) * 100;
+    const color = WORKER_COLORS[i];
+    html += `
+      <div class="bar-row">
+        <span class="bar-label" style="color:${color}">W${i}</span>
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${pct}%;background:${color}"></div>
+        </div>
+        <span class="bar-count">${count}</span>
+      </div>
+    `;
+  }
+  container.innerHTML = html;
+}
+
+function renderStats() {
+  document.getElementById('statPublished').textContent = state.published;
+  document.getElementById('statCompleted').textContent = state.completed;
+  document.getElementById('statPending').textContent = Math.max(0, state.published - state.completed);
+
+  let avg = 0;
+  if (state.durations.length > 0) {
+    avg = state.durations.reduce((a, b) => a + b, 0) / state.durations.length;
+  }
+  document.getElementById('statLatency').innerHTML = `${avg.toFixed(0)}<span style="font-size:13px;color:var(--text-dim)">ms</span>`;
+}
+
+function renderTimelineDot(result) {
+  const container = document.getElementById('timeline');
+  const dot = document.createElement('div');
+  dot.className = 'timeline-dot';
+  dot.style.background = WORKER_COLORS[result.consumer_id] || 'var(--text-dim)';
+  dot.title = `task-${result.task_id} → worker-${result.consumer_id}`;
+  container.appendChild(dot);
+  while (container.children.length > MAX_TIMELINE) container.removeChild(container.firstChild);
+  container.scrollTop = container.scrollHeight;
+}
+
+function renderTimeline() {
+  const container = document.getElementById('timeline');
+  container.innerHTML = '';
+  state.timeline.forEach(r => renderTimelineDot(r));
+}
+
+connect();
+</script>
+</body>
+</html>
